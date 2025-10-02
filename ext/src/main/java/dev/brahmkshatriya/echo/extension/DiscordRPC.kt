@@ -162,17 +162,61 @@ open class DiscordRPC : ExtensionClient, LoginClient.WebView, TrackerClient,
             )
         )
     )
-
     override val webViewRequest = object : WebViewRequest.Evaluate<List<User>> {
-        override val initialUrl = "https://discord.com/login".toGetRequest()
+        override val initialUrl = "https://discord.com/login".toGetRequest(
+            mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 14; SM-S921U; Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.363")
+        )
         override val javascriptToEvaluateOnPageStart = """
             function() { 
-                window.LOCAL = localStorage;
-                localStorage.removeItem = function(key) { return true; };
+                function initializeLocalStorage() {
+                    try {
+                        window.LOCAL = window.localStorage || window.webkitStorageLocal;
+                        if (window.LOCAL) {
+                            window.LOCAL.removeItem = function(key) { 
+                                console.log('Prevented removal of item:', key);
+                                return true; 
+                            };
+                            console.log('localStorage initialized successfully');
+                        } else {
+                            console.error('localStorage is not available');
+                        }
+                    } catch (e) {
+                        console.error('Error initializing localStorage:', e);
+                    }
+                }   
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', initializeLocalStorage);
+                } else {
+                    initializeLocalStorage();
+                }
             }""".trimIndent()
 
         override val stopUrlRegex = "https://discord\\.com/app".toRegex()
-        override val javascriptToEvaluate = "function() { return window.LOCAL.getItem('token'); }"
+        override val javascriptToEvaluate = """
+            function() { 
+                var token = null;
+                try {
+                    var iframe = document.createElement('iframe');
+                    iframe.style.display = 'none';
+                    document.body.appendChild(iframe);
+                    
+                    var iframeLocalStorage = iframe.contentWindow.localStorage;
+                    if (iframeLocalStorage) {
+                        token = iframeLocalStorage.getItem('token');
+                    }
+                    
+                    document.body.removeChild(iframe);
+                } catch (iframeError) {
+                    console.error('Error accessing iframe localStorage:', iframeError);
+                }
+                
+                console.log('Token found:', token ? 'Yes' : 'No');
+                if (token) {
+                    console.log('Token length:', token.length);
+                }
+                
+                return token;
+            }""".trimIndent()
 
         override suspend fun onStop(
             url: NetworkRequest, data: String?,
